@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>待办</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true"></div>
+    <main class="app">
+      <header class="header">
+        <div class="brand">
+          <p class="brand-mark">待办</p>
+          <p class="brand-sub">编辑一整页，或一项项打勾；完成了可按日归档</p>
+          <p id="sync-status" class="sync-status" aria-live="polite">准备同步…</p>
+        </div>
+        <div class="tab-switch" role="tablist" aria-label="主视图">
+          <button
+            type="button"
+            class="tab-btn"
+            data-tab="todos"
+            role="tab"
+            aria-selected="true"
+          >
+            待办
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            data-tab="archive"
+            role="tab"
+            aria-selected="false"
+          >
+            归档
+          </button>
+        </div>
+      </header>
+
+      <div id="todos-section">
+        <div class="toolbar">
+          <div class="mode-switch" role="tablist" aria-label="待办模式">
+            <button
+              type="button"
+              class="mode-btn"
+              data-mode="task"
+              role="tab"
+              aria-selected="true"
+            >
+              任务
+            </button>
+            <button
+              type="button"
+              class="mode-btn"
+              data-mode="edit"
+              role="tab"
+              aria-selected="false"
+            >
+              编辑
+            </button>
+          </div>
+          <button type="button" id="btn-archive" class="btn-archive">
+            归档已完成
+          </button>
+        </div>
+
+        <section
+          id="task-view"
+          class="panel panel-task"
+          role="tabpanel"
+          aria-label="任务模式"
+        >
+          <ul id="todo-list" class="todo-list"></ul>
+          <form id="add-form" class="add-form" autocomplete="off">
+            <input
+              id="add-input"
+              type="text"
+              placeholder="写下一件要做的事，回车添加"
+              aria-label="新待办"
+            />
+            <button type="submit" class="btn-add">添加</button>
+          </form>
+        </section>
+
+        <section
+          id="edit-view"
+          class="panel panel-edit hidden"
+          role="tabpanel"
+          aria-label="编辑模式"
+          hidden
+        >
+          <label class="edit-hint" for="edit-area">
+            每行一项：<code>- [ ]</code> 未完成，<code>- [x]</code> 已完成
+          </label>
+          <textarea
+            id="edit-area"
+            class="edit-area"
+            spellcheck="false"
+            aria-label="待办文本"
+          ></textarea>
+        </section>
+      </div>
+
+      <section
+        id="archive-section"
+        class="panel panel-archive hidden"
+        role="tabpanel"
+        aria-label="归档"
+        hidden
+      >
+        <div id="archive-root" class="archive-root"></div>
+      </section>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
