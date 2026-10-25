@@ -34,8 +34,6 @@
     (cloudConfigured
       ? { tab: "todos", mode: "task", todos: [], archives: [] }
       : defaultState());
-  /** @type {ReturnType<typeof createClient> | null} */
-  let supabase = null;
   let cloudReady = false;
   let initialPullDone = !cloudConfigured;
   let syncTimer = 0;
@@ -45,18 +43,68 @@
   /** @type {string | null} */
   let lastRemoteUpdatedAt = null;
 
-  function createClient(url, key) {
-    return window.supabase.createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-  }
-
   function rowIsEmpty(row) {
     return (
       !row ||
       ((!row.todos || row.todos.length === 0) &&
         (!row.archives || row.archives.length === 0))
     );
+  }
+
+  function restHeaders(extra) {
+    return Object.assign(
+      {
+        apikey: cfg.supabaseKey,
+        Authorization: `Bearer ${cfg.supabaseKey}`,
+        Accept: "application/json",
+      },
+      extra || {}
+    );
+  }
+
+  function restUrl(pathQuery) {
+    return `${cfg.supabaseUrl.replace(/\/$/, "")}/rest/v1/${pathQuery}`;
+  }
+
+  /**
+   * @returns {Promise<{ data: any, error: string | null }>}
+   */
+  async function restFetch(pathQuery, options) {
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 15000);
+    try {
+      const res = await fetch(restUrl(pathQuery), {
+        ...options,
+        signal: ctrl.signal,
+        headers: restHeaders(options && options.headers),
+      });
+      const text = await res.text();
+      let body = null;
+      if (text) {
+        try {
+          body = JSON.parse(text);
+        } catch {
+          body = text;
+        }
+      }
+      if (!res.ok) {
+        const msg =
+          (body && body.message) ||
+          (body && body.error) ||
+          text ||
+          `HTTP ${res.status}`;
+        return { data: null, error: String(msg) };
+      }
+      return { data: body, error: null };
+    } catch (err) {
+      const msg =
+        err && err.name === "AbortError"
+          ? "连接超时"
+          : (err && err.message) || "网络异常";
+      return { data: null, error: msg };
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
 
   function uid() {
@@ -182,25 +230,30 @@
   }
 
   async function pushCloud() {
-    if (!supabase || !cloudReady || !initialPullDone || applyingRemote || pushing) {
-      return;
-    }
+    if (!cloudReady || !initialPullDone || applyingRemote || pushing) return;
     pushing = true;
     setSyncStatus("同步中…", "pending");
     const payload = payloadFromState();
-    const { data, error } = await supabase
-      .from("todo_state")
-      .upsert(payload, { onConflict: "id" })
-      .select("updated_at")
-      .single();
+    const { data, error } = await restFetch(
+      "todo_state?on_conflict=id&select=updated_at",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Prefer: "resolution=merge-duplicates,return=representation",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
     pushing = false;
 
     if (error) {
       console.error(error);
-      setSyncStatus(`上传失败：${error.message || "网络异常"}`, "error");
+      setSyncStatus(`上传失败：${error}`, "error");
       return;
     }
-    lastRemoteUpdatedAt = data?.updated_at || payload.updated_at;
+    const row = Array.isArray(data) ? data[0] : data;
+    lastRemoteUpdatedAt = (row && row.updated_at) || payload.updated_at;
     setSyncStatus("已同步云端", "ok");
   }
 
@@ -222,34 +275,30 @@
    * @param {{ quiet?: boolean }} [opts]
    */
   async function pullCloud(opts = {}) {
-    if (!supabase) return;
+    if (!cloudConfigured) return;
     const quiet = Boolean(opts.quiet);
     if (!quiet) setSyncStatus("连接云端…", "pending");
 
-    const { data, error } = await supabase
-      .from("todo_state")
-      .select("todos, archives, tab, mode, updated_at")
-      .eq("id", STATE_ID)
-      .maybeSingle();
+    const { data, error } = await restFetch(
+      `todo_state?id=eq.${encodeURIComponent(STATE_ID)}&select=todos,archives,tab,mode,updated_at`,
+      { method: "GET" }
+    );
 
     if (error) {
       console.error(error);
       cloudReady = false;
       initialPullDone = true;
-      setSyncStatus(
-        `连不上云端：${error.message || "请检查手机网络是否能访问外网"}`,
-        "error"
-      );
+      setSyncStatus(`连不上云端：${error}`, "error");
       return;
     }
 
     cloudReady = true;
+    const row = Array.isArray(data) ? data[0] : data;
 
-    if (data && !rowIsEmpty(data)) {
-      if (data.updated_at !== lastRemoteUpdatedAt) {
-        applyRemoteRow(data);
-        if (!quiet) setSyncStatus("已同步云端", "ok");
-        else setSyncStatus("已从云端更新", "ok");
+    if (row && !rowIsEmpty(row)) {
+      if (row.updated_at !== lastRemoteUpdatedAt) {
+        applyRemoteRow(row);
+        setSyncStatus(quiet ? "已从云端更新" : "已同步云端", "ok");
       } else if (!quiet) {
         setSyncStatus("已同步云端", "ok");
       }
@@ -257,33 +306,11 @@
       initialPullDone = true;
       await pushCloud();
     } else {
-      if (data) applyRemoteRow(data);
+      if (row) applyRemoteRow(row);
       if (!quiet) setSyncStatus("已同步云端（空）", "ok");
     }
 
     initialPullDone = true;
-  }
-
-  function startRealtime() {
-    if (!supabase) return;
-    supabase
-      .channel(`todo_state:${STATE_ID}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "todo_state",
-          filter: `id=eq.${STATE_ID}`,
-        },
-        (payload) => {
-          const row = payload.new;
-          if (!row || row.updated_at === lastRemoteUpdatedAt) return;
-          applyRemoteRow(row);
-          setSyncStatus("已从其他设备更新", "ok");
-        }
-      )
-      .subscribe();
   }
 
   function startPolling() {
@@ -305,15 +332,13 @@
   }
 
   async function initCloud() {
-    if (!cloudConfigured || !window.supabase?.createClient) {
+    if (!cloudConfigured) {
       setSyncStatus("仅本机存储", "");
       initialPullDone = true;
       return;
     }
     try {
-      supabase = createClient(cfg.supabaseUrl, cfg.supabaseKey);
       await pullCloud();
-      startRealtime();
       startPolling();
     } catch (err) {
       console.error(err);
