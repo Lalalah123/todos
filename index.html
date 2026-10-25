@@ -19,7 +19,10 @@
         <div class="brand">
           <p class="brand-mark">待办</p>
           <p class="brand-sub">编辑一整页，或一项项打勾；完成了可按日归档</p>
-          <p id="sync-status" class="sync-status" aria-live="polite">准备同步…</p>
+          <div class="sync-row">
+            <p id="sync-status" class="sync-status" aria-live="polite">准备同步…</p>
+            <button type="button" id="btn-sync" class="btn-sync">刷新同步</button>
+          </div>
         </div>
         <div class="tab-switch" role="tablist" aria-label="主视图">
           <button
@@ -117,7 +120,7 @@
         <div id="archive-root" class="archive-root"></div>
       </section>
     </main>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="vendor/supabase.js"></script>
     <script src="config.js"></script>
     <script src="app.js"></script>
   </body>
